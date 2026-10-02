@@ -69,17 +69,14 @@ class InfraiClient:
         return list(result.data[0].embedding)
 
     def ingest(self, collection: str, event: PaymentEvent, document: str) -> Notification:
-        chunks = chunk_text(document)
-        vectors = []
-        for index, chunk in enumerate(chunks):
-            vectors.append({"id": f"{event.event_id}-{index}", "values": self.embed(chunk), "metadata": {"event_id": event.event_id, "account_id": event.account_id, "text": chunk}})
-        dimension = len(vectors[0]["values"])
-        self._post("/v1/vector/collection/create", {"collection": collection, "dimension": dimension, "metric": "cosine", "metadata": {"source": "payment-event"}})
-        self._post("/v1/vector/upsert", {"collection": collection, "vectors": vectors})
-        self._post("/v1/vector/query", {"collection": collection, "embedding": vectors[0]["values"], "top_k": 3, "filter": {"account_id": event.account_id}, "include_metadata": True})
-        action = risk_action(event)
-        severity = "high" if action == "review" else "normal"
-        return Notification(event.event_id, f"Payment {event.event_id}: {action}", severity)
+        raise InfraiError(
+            "CLEANUP_UNAVAILABLE",
+            {
+                "collection": collection,
+                "message": "The live contract has no collection or vector delete capability",
+            },
+            0,
+        )
 
 
 def event_from_dict(data: dict[str, Any]) -> PaymentEvent:
@@ -90,4 +87,5 @@ if __name__ == "__main__":
     event = PaymentEvent("pay-1001", "acct-42", 12500.0, "USD", "Wire transfer settlement")
     if "INFRAI_API_KEY" not in os.environ:
         raise SystemExit("Set INFRAI_API_KEY to run ingestion")
-    print(InfraiClient().ingest("fintech-payments", event, event.description))
+    embedding = InfraiClient().embed(event.description)
+    print(f"Embedding verified ({len(embedding)} dimensions); vector ingestion skipped because the live contract has no delete capability")

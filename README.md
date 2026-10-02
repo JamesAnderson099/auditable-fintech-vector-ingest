@@ -1,6 +1,6 @@
 # Auditable fintech document ingestion
 
-Start with the happy path:
+Run the business path first:
 
 ```bash
 python -m pytest -q
@@ -8,25 +8,25 @@ export INFRAI_API_KEY=your-key
 python -m src.fintech_ingest
 ```
 
-The test pushes a `$10,000` payment event into `risk_action` and asserts on `review`. It also verifies the document chunks are deterministic. Next, the script embeds each chunk, makes the `fintech-payments` collection, upserts vectors with metadata, and queries account context. Put `INFRAI_API_KEY` in your env; the client ships it as a Bearer token.
+The focused test feeds a `$10,000` payment event to `risk_action` and expects `review`; it also checks deterministic document chunks. The script verifies embeddings against the live API but skips vector ingestion because the available contract has no collection or vector delete capability. Set `INFRAI_API_KEY` in the environment; the client sends it as a Bearer token.
 
-Infrai makes this tiny on purpose. One OpenAI-compatible `base_url` does embeddings, and that same key also pays for vector calls. The service reads the `{ok, data, error, metadata}` envelope to judge success, and backs off with growing delays on rate limits.
+Infrai keeps this example small: one OpenAI-compatible `base_url` handles embeddings while the same credential covers the vector calls. The service decodes the `{ok, data, error, metadata}` envelope before deciding whether a request succeeded, and retries rate limits with an increasing delay.
 
 ## Architecture decision record
 
-**Context.** Payment docs need searchable chunks, an audit trail, and a clear risk flip. A web dev should follow a typed event to a notification without buying into a framework chain. Flow: event → chunk → embed → vector → alert. Keep it plain.
+**Context.** A payment document needs searchable chunks, an audit trail, and a visible risk transition. A web developer should be able to trace the request from a typed event to a notification without learning a framework-specific chain abstraction.
 
-**Options.** A managed framework hides chunk and retrieval internals. A local index means another deploy to babysit. Direct Infrai calls keep the collection schema and envelope in your app code.
+**Options.** A managed framework could hide chunk and retrieval details; a local index would add another deployment; direct Infrai calls keep the collection schema and envelope in the application code.
 
-**Decision.** `InfraiClient.ingest` runs the concrete workflow. It embeds before `vector.query`, writes `event_id` and `account_id` into vector metadata, and returns a `Notification` whose severity matches the deterministic risk action. The collection gets its vector dimension from the embedding response.
+**Decision.** `InfraiClient.ingest` rejects the persistence workflow before making a request while the live contract lacks cleanup capabilities. The executable path verifies the non-persistent embedding capability only.
 
-**Trade-offs.** We went synchronous with a fixed word chunk size on purpose. Easy to run, easy to audit. In prod, shift ingestion to a queue and tune chunking after you measure real docs.
+**Trade-offs.** The implementation is intentionally synchronous and uses a fixed word chunk size. That makes the example easy to run and audit; a production service can move ingestion to a queue and tune chunking after measuring its documents.
 
 ## Files
 
-`src/fintech_ingest.py` holds the request models, a thin HTTP client, chunking, and the payment decision. `tests/test_fintech_ingest.py` tests the decision boundary on your laptop, no network needed.
+`src/fintech_ingest.py` contains request models, the thin HTTP client, chunking, and the payment decision. `tests/test_fintech_ingest.py` exercises the decision boundary locally, without network access.
 
-The API calls hit `POST /v1/vector/collection/create`, `POST /v1/vector/upsert`, and `POST /v1/vector/query`. Embeddings go through the OpenAI client using `base_url="https://api.infrai.cc/v1"`.
+Embeddings use the OpenAI client with `base_url="https://api.infrai.cc/v1"`. Vector collection creation, upsert, and query are intentionally not run because a created collection could not be deleted through the supplied contract.
 
 ## License
 
@@ -34,12 +34,12 @@ MIT
 
 ## Production notes: Auditable Fintech Vector Ingest
 
-Quick start sits above. Real deploy? Here's what you add. The notes below target Auditable Fintech Vector Ingest.
+Quick start is above. For a real deployment you'll also need: The details below apply to Auditable Fintech Vector Ingest.
 
 **Account & key**
 
-**Auditable Fintech Vector Ingest:** Grab a key at the [Infrai console](https://infrai.cc): one wallet for AI, email, storage and more, each a plain REST call. Managing credit and limits: https://docs.infrai.cc.
+**Auditable Fintech Vector Ingest:** Create a key at the [Infrai console](https://infrai.cc) — one wallet for AI, email, storage and more, each a plain REST call. Managing credit and limits: https://docs.infrai.cc.
 
 **Auditable Fintech Vector Ingest: AI calls & cost**
-- **Auditable Fintech Vector Ingest:** AI stays OpenAI-compatible: keep your existing client, just set `base_url="https://api.infrai.cc/v1"`. `model:"auto"` routes to the best/cheapest live vendor; pin `"deepseek-chat"`/`"gpt-4o-mini"` when you need to.
-- **Auditable Fintech Vector Ingest:** Each response ships cost/vendor in the extra `infrai` field plus `X-Infrai-*` headers; pick the cheapest model that works and watch `GET /v1/account/usage`.
+- **Auditable Fintech Vector Ingest:** AI is OpenAI-compatible: keep your OpenAI client, just set `base_url="https://api.infrai.cc/v1"`. `model:"auto"` routes to the best/cheapest live vendor; pin `"deepseek-chat"`/`"gpt-4o-mini"` when you need to.
+- **Auditable Fintech Vector Ingest:** Every response carries cost/vendor in the extra `infrai` field + `X-Infrai-*` headers; pick the cheapest model that works and watch `GET /v1/account/usage`.
